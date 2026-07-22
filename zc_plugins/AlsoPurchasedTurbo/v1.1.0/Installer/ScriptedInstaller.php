@@ -6,8 +6,8 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.0.0
- * @updated     07-13-2026
+ * @version     1.1.0
+ * @updated     07-22-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
 // Replaces the stock also_purchased engine with a precomputed pair table.
@@ -22,92 +22,20 @@ class ScriptedInstaller extends ScriptedInstallBase
     // between versions or uninstall will refuse to remove older shims.
     public const SHIM_MARKER = 'APT-SHIM-MARKER';
 
+    // Version the installer identifies as during install/upgrade. Bumped as
+    // part of every release (see the version-bump checklist in the repo).
+    public const APT_CURRENT_VERSION = '1.1.0';
+
     protected function executeInstall()
     {
-        // -----
-        // The pair table. Deliberately lean: primary key only, so the
-        // per-checkout upserts stay as cheap as possible. Per-product row
-        // counts are small enough that the read-side ORDER BY is a trivial
-        // in-memory sort. Table is preserved on uninstall (see README).
-        //
-        $this->executeInstallerSql(
-            'CREATE TABLE IF NOT EXISTS ' . DB_PREFIX . 'products_also_purchased (
-                products_id INT(11) UNSIGNED NOT NULL,
-                also_products_id INT(11) UNSIGNED NOT NULL,
-                times_purchased INT(11) UNSIGNED NOT NULL DEFAULT 1,
-                last_purchased DATETIME NOT NULL,
-                PRIMARY KEY (products_id, also_products_id)
-            ) ENGINE=InnoDB'
-        );
+        $this->ensurePairTable();
 
-        // -----
-        // Own configuration group rather than piggybacking a stock group.
-        //
         $cgi = $this->getOrCreateConfigGroupId(
             $this->configGroupTitle,
             'Settings for the Also Purchased Turbo precomputed recommendation engine.'
         );
 
-        if (!defined('APT_ENABLED')) {
-            $this->addConfigurationKey('APT_ENABLED', [
-                'configuration_title' => 'Enable Also Purchased Turbo?',
-                'configuration_value' => 'true',
-                'configuration_description' => '<br>When <b>true</b>, product pages read recommendations from the precomputed pair table and new orders update it at checkout. When <b>false</b>, the stock also-purchased query is used, exactly as if this plugin were not installed.<br><br>Display counts and column layout continue to honor the stock settings (<code>MIN_DISPLAY_ALSO_PURCHASED</code>, <code>MAX_DISPLAY_ALSO_PURCHASED</code>, columns) under Configuration &gt; Product Info.',
-                'configuration_group_id' => $cgi,
-                'sort_order' => 10,
-                'set_function' => 'zen_cfg_select_option([\'true\', \'false\'],',
-            ]);
-        }
-
-        if (!defined('APT_RANKING')) {
-            $this->addConfigurationKey('APT_RANKING', [
-                'configuration_title' => 'Recommendation ranking',
-                'configuration_value' => 'Affinity',
-                'configuration_description' => '<br><b>Affinity:</b> products most often purchased together with this one, strongest first (recommended).<br><b>Recency:</b> most recently co-purchased first (closest to stock behavior).<br><b>Random:</b> a random selection of co-purchased products.',
-                'configuration_group_id' => $cgi,
-                'sort_order' => 20,
-                'set_function' => 'zen_cfg_select_option([\'Affinity\', \'Recency\', \'Random\'],',
-            ]);
-        }
-
-        if (!defined('APT_FALLBACK_STOCK')) {
-            $this->addConfigurationKey('APT_FALLBACK_STOCK', [
-                'configuration_title' => 'Fall back to stock query when a product has no pair data?',
-                'configuration_value' => 'true',
-                'configuration_description' => '<br>When <b>true</b> and the pair table has no rows for the product being viewed (e.g. before the initial seed has completed), the stock also-purchased query is run for that product so the storefront display never regresses. Set to <b>false</b> on very large stores once seeding is complete, so an un-paired product costs nothing.',
-                'configuration_group_id' => $cgi,
-                'sort_order' => 30,
-                'set_function' => 'zen_cfg_select_option([\'true\', \'false\'],',
-            ]);
-        }
-
-        if (!defined('APT_DEBUG_LOG')) {
-            $this->addConfigurationKey('APT_DEBUG_LOG', [
-                'configuration_title' => 'Enable debug log',
-                'configuration_value' => 'false',
-                'configuration_description' => '<br>Write diagnostic info to <code>logs/also_purchased_turbo_debug.log</code>. Each storefront render logs one JSON line (product id, data source used, ranking mode, rows returned, query time); each checkout capture logs the order/product pair activity. ONLY enable while actively troubleshooting &mdash; the log grows with every product-page view. Safe to delete the log file at any time.',
-                'configuration_group_id' => $cgi,
-                'sort_order' => 40,
-                'set_function' => 'zen_cfg_select_option([\'true\', \'false\'],',
-            ]);
-        }
-
-        if (!defined('APT_SEED_PROGRESS')) {
-            // On a REINSTALL the pair table was preserved from the previous
-            // install; treat a populated table as already-seeded so the
-            // status is truthful and a stray "Seed" click can't double-count.
-            $apt_existing = $this->executeInstallerSelectQuery(
-                'SELECT 1 FROM ' . DB_PREFIX . 'products_also_purchased LIMIT 1'
-            );
-            $apt_seed_initial = ($apt_existing !== false && !$apt_existing->EOF) ? 'done' : '';
-            $this->addConfigurationKey('APT_SEED_PROGRESS', [
-                'configuration_title' => 'Seed progress (managed automatically)',
-                'configuration_value' => $apt_seed_initial,
-                'configuration_description' => '<br>Internal bookkeeping for the historical seeding process. Managed by Tools &gt; Also Purchased Turbo &mdash; do not edit by hand. Empty = not yet seeded; a number = next orders_id to process; <code>done</code> = seeding complete.',
-                'configuration_group_id' => $cgi,
-                'sort_order' => 90,
-            ]);
-        }
+        $this->insertConfigurationKeys($cgi);
 
         // -----
         // Admin pages: the Tools page, and a Configuration-menu entry for the
@@ -164,11 +92,152 @@ class ScriptedInstaller extends ScriptedInstallBase
         return parent::executeInstall();
     }
 
+    // -----
+    // Idempotent building blocks shared by the install and upgrade paths.
+    // Each checks "does this thing exist?" before acting, per the Zen Cart
+    // encapsulated-plugin installer guidance, so either path may run them
+    // any number of times.
+    // -----
+
+    protected function ensurePairTable(): void
+    {
+        // Deliberately lean: primary key only, so the per-checkout upserts
+        // stay as cheap as possible. Per-product row counts stay small
+        // (especially with pair pruning enabled), so the read-side ORDER BY
+        // is a trivial in-memory sort. Preserved on uninstall (see README).
+        $this->executeInstallerSql(
+            'CREATE TABLE IF NOT EXISTS ' . DB_PREFIX . 'products_also_purchased (
+                products_id INT(11) UNSIGNED NOT NULL,
+                also_products_id INT(11) UNSIGNED NOT NULL,
+                times_purchased INT(11) UNSIGNED NOT NULL DEFAULT 1,
+                last_purchased DATETIME NOT NULL,
+                PRIMARY KEY (products_id, also_products_id)
+            ) ENGINE=InnoDB'
+        );
+    }
+
+    protected function insertConfigurationKeys(int $cgi): void
+    {
+        if (!defined('APT_ENABLED')) {
+            $this->addConfigurationKey('APT_ENABLED', [
+                'configuration_title' => 'Enable Also Purchased Turbo?',
+                'configuration_value' => 'true',
+                'configuration_description' => '<br>When <b>true</b>, product pages read recommendations from the precomputed pair table and new orders update it at checkout. When <b>false</b>, the stock also-purchased query is used, exactly as if this plugin were not installed.<br><br>Display counts and column layout continue to honor the stock settings (<code>MIN_DISPLAY_ALSO_PURCHASED</code>, <code>MAX_DISPLAY_ALSO_PURCHASED</code>, columns) under Configuration &gt; Product Info.',
+                'configuration_group_id' => $cgi,
+                'sort_order' => 10,
+                'set_function' => 'zen_cfg_select_option([\'true\', \'false\'],',
+            ]);
+        }
+
+        if (!defined('APT_RANKING')) {
+            $this->addConfigurationKey('APT_RANKING', [
+                'configuration_title' => 'Recommendation ranking',
+                'configuration_value' => 'Affinity',
+                'configuration_description' => '<br><b>Affinity:</b> products most often purchased together with this one, strongest first (recommended).<br><b>Recency:</b> most recently co-purchased first (closest to stock behavior).<br><b>Random:</b> a random selection of co-purchased products.',
+                'configuration_group_id' => $cgi,
+                'sort_order' => 20,
+                'set_function' => 'zen_cfg_select_option([\'Affinity\', \'Recency\', \'Random\'],',
+            ]);
+        }
+
+        if (!defined('APT_FALLBACK_STOCK')) {
+            $this->addConfigurationKey('APT_FALLBACK_STOCK', [
+                'configuration_title' => 'Fall back to stock query when a product has no pair data?',
+                'configuration_value' => 'true',
+                'configuration_description' => '<br>When <b>true</b> and the pair table has no rows for the product being viewed (e.g. before the initial seed has completed), the stock also-purchased query is run for that product so the storefront display never regresses. Set to <b>false</b> on very large stores once seeding is complete, so an un-paired product costs nothing.',
+                'configuration_group_id' => $cgi,
+                'sort_order' => 30,
+                'set_function' => 'zen_cfg_select_option([\'true\', \'false\'],',
+            ]);
+        }
+
+        if (!defined('APT_DEBUG_LOG')) {
+            $this->addConfigurationKey('APT_DEBUG_LOG', [
+                'configuration_title' => 'Enable debug log',
+                'configuration_value' => 'false',
+                'configuration_description' => '<br>Write diagnostic info to <code>logs/also_purchased_turbo_debug.log</code>. Each storefront render logs one JSON line (product id, data source used, ranking mode, rows returned, query time); each checkout capture logs the order/product pair activity. ONLY enable while actively troubleshooting &mdash; the log grows with every product-page view. Safe to delete the log file at any time.',
+                'configuration_group_id' => $cgi,
+                'sort_order' => 40,
+                'set_function' => 'zen_cfg_select_option([\'true\', \'false\'],',
+            ]);
+        }
+
+        if (!defined('APT_MAX_PAIRS_PER_PRODUCT')) {
+            $this->addConfigurationKey('APT_MAX_PAIRS_PER_PRODUCT', [
+                'configuration_title' => 'Maximum pairs stored per product (0 = unlimited)',
+                'configuration_value' => '50',
+                'configuration_description' => '<br>Upper bound on how many co-purchase pairs are KEPT per product when the prune tool runs (Tools &gt; Also Purchased Turbo). The storefront only ever displays a handful, so on large stores keeping every historical pair wastes space and slows the per-product read; pruning keeps each product\'s strongest pairs and can shrink the table dramatically.<br><br>Set comfortably above <code>MAX_DISPLAY_ALSO_PURCHASED</code> (headroom for disabled-product filtering and future ranking changes) &mdash; the default of <b>50</b> suits most stores. <b>0</b> disables pruning entirely. The checkout observer continues recording all new pairs; pruning is periodic maintenance, and it runs automatically after seeding completes.',
+                'configuration_group_id' => $cgi,
+                'sort_order' => 50,
+                'set_function' => 'zen_cfg_select_option([\'0\', \'25\', \'50\', \'100\', \'250\'],',
+            ]);
+        }
+
+        if (!defined('APT_PRUNE_STATS')) {
+            $this->addConfigurationKey('APT_PRUNE_STATS', [
+                'configuration_title' => 'Last prune (managed automatically)',
+                'configuration_value' => '',
+                'configuration_description' => '<br>Record of the most recent pair-table prune, shown on Tools &gt; Also Purchased Turbo. Managed automatically &mdash; do not edit by hand. Format: <code>datetime|rows_before|rows_after|limit</code>.',
+                'configuration_group_id' => $cgi,
+                'sort_order' => 91,
+            ]);
+        }
+
+        if (!defined('APT_SEED_PROGRESS')) {
+            // On a REINSTALL the pair table was preserved from the previous
+            // install; treat a populated table as already-seeded so the
+            // status is truthful and a stray "Seed" click can\'t double-count.
+            $apt_existing = $this->executeInstallerSelectQuery(
+                'SELECT 1 FROM ' . DB_PREFIX . 'products_also_purchased LIMIT 1'
+            );
+            $apt_seed_initial = ($apt_existing !== false && !$apt_existing->EOF) ? 'done' : '';
+            $this->addConfigurationKey('APT_SEED_PROGRESS', [
+                'configuration_title' => 'Seed progress (managed automatically)',
+                'configuration_value' => $apt_seed_initial,
+                'configuration_description' => '<br>Internal bookkeeping for the historical seeding process. Managed by Tools &gt; Also Purchased Turbo &mdash; do not edit by hand. Empty = not yet seeded; a number = next orders_id to process; <code>done</code> = seeding complete.',
+                'configuration_group_id' => $cgi,
+                'sort_order' => 90,
+            ]);
+        }
+    }
+
     protected function executeUpgrade($oldVersion)
     {
-        // v1.0.0 is the first release. Future upgrade steps added here must
-        // be idempotent, must bring upgraded installs to the same state as a
-        // fresh install, and must preserve admin-edited configuration values.
+        // Per the Zen Cart encapsulated-plugin guidance, no version-gated
+        // dispatch: every step below is idempotent and self-healing, bringing
+        // ANY older install to the current state. $oldVersion is
+        // informational. Data is never dropped or rebuilt here.
+
+        $this->ensurePairTable();
+
+        $cgi = $this->getOrCreateConfigGroupId(
+            $this->configGroupTitle,
+            'Settings for the Also Purchased Turbo precomputed recommendation engine.'
+        );
+
+        // v1.1.0: adds APT_MAX_PAIRS_PER_PRODUCT; defined() guards skip every
+        // key that already exists, so only genuinely new keys are inserted and
+        // admin-edited values are never touched.
+        $this->insertConfigurationKeys($cgi);
+
+        // Heal admin-page registrations and template shims (both fully
+        // guarded; integrated/customized modules are never touched).
+        if (function_exists('zen_register_admin_page')) {
+            if (!zen_page_key_exists('toolsAlsoPurchasedTurbo')) {
+                zen_register_admin_page('toolsAlsoPurchasedTurbo', 'BOX_TOOLS_ALSO_PURCHASED_TURBO', 'FILENAME_ALSO_PURCHASED_TURBO', '', 'tools', 'Y');
+            }
+            if (!zen_page_key_exists('configAlsoPurchasedTurbo')) {
+                zen_register_admin_page('configAlsoPurchasedTurbo', 'BOX_CONFIGURATION_ALSO_PURCHASED_TURBO', 'FILENAME_CONFIGURATION', 'gID=' . $cgi, 'configuration', 'Y');
+            }
+        }
+
+        global $messageStack;
+        foreach ($this->installShims() as $shim_message) {
+            if (isset($messageStack)) {
+                $messageStack->add_session($shim_message, 'caution');
+            }
+        }
+
         return parent::executeUpgrade($oldVersion);
     }
 
@@ -181,7 +250,7 @@ class ScriptedInstaller extends ScriptedInstallBase
             zen_deregister_admin_pages(['toolsAlsoPurchasedTurbo', 'configAlsoPurchasedTurbo']);
         }
 
-        $this->deleteConfigurationKeys(['APT_ENABLED', 'APT_RANKING', 'APT_FALLBACK_STOCK', 'APT_DEBUG_LOG', 'APT_SEED_PROGRESS']);
+        $this->deleteConfigurationKeys(['APT_ENABLED', 'APT_RANKING', 'APT_FALLBACK_STOCK', 'APT_DEBUG_LOG', 'APT_MAX_PAIRS_PER_PRODUCT', 'APT_PRUNE_STATS', 'APT_SEED_PROGRESS']);
         $this->deleteConfigurationGroup($this->configGroupTitle, true);
 
         // NOTE: the products_also_purchased table is deliberately preserved so

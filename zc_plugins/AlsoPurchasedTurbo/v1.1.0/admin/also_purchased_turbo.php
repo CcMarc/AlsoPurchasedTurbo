@@ -6,8 +6,8 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.0.0
- * @updated     07-13-2026
+ * @version     1.1.0
+ * @updated     07-22-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
 // Tools page: engine status, template-shim health/repair/takeover, related
@@ -27,6 +27,7 @@ const APT_SHIM_MARKER = 'APT-SHIM-MARKER';
 
 $action = $_POST['action'] ?? '';
 $apt_auto_continue = false;
+$apt_chain_prune_after_seed = false;
 
 // -----
 // Helpers ------------------------------------------------------------------
@@ -159,6 +160,34 @@ function apt_get_stock_display_settings(): array
     return $values;
 }
 
+/**
+ * Read a configuration value fresh from the database (the defined constant
+ * may be stale within the request that changed it).
+ */
+function apt_get_config(string $key): string
+{
+    global $db;
+    $result = $db->Execute(
+        "SELECT configuration_value FROM " . TABLE_CONFIGURATION . "
+          WHERE configuration_key = '" . zen_db_input($key) . "' LIMIT 1"
+    );
+    return $result->EOF ? '' : (string)$result->fields['configuration_value'];
+}
+
+/**
+ * Ranking used to decide which pairs SURVIVE a prune. Follows the configured
+ * storefront ranking so pruning never removes what the storefront would have
+ * shown; Random has no stable order, so it prunes by affinity.
+ */
+function apt_prune_order_by(): string
+{
+    $ranking = apt_get_config('APT_RANKING');
+    if ($ranking === 'Recency') {
+        return 'last_purchased DESC, times_purchased DESC, also_products_id';
+    }
+    return 'times_purchased DESC, last_purchased DESC, also_products_id';
+}
+
 function apt_config_group_id(): int
 {
     global $db;
@@ -233,10 +262,92 @@ if ($action === 'seed' || isset($_GET['autoseed'])) {
                    FROM ' . TABLE_PRODUCTS_ALSO_PURCHASED
             );
             $messageStack->add(sprintf(APT_TEXT_SEED_COMPLETE, number_format((float)$counts->fields['pair_rows']), number_format((float)$counts->fields['products_covered'])), 'success');
+            if ((int)apt_get_config('APT_MAX_PAIRS_PER_PRODUCT') > 0) {
+                $messageStack->add(APT_TEXT_SEED_PRUNE_CHAIN, 'caution');
+                $apt_chain_prune_after_seed = true;
+            }
         } else {
             apt_set_seed_progress((string)$next);
             $messageStack->add(sprintf(APT_TEXT_SEED_CHUNK_DONE, number_format($first_processed), number_format($next - 1)), 'success');
             $apt_auto_continue = true;
+        }
+    }
+}
+
+$apt_auto_continue_prune = false;
+$apt_prune_state = null;
+
+if ($action === 'prune_pairs') {
+    $apt_limit = max(0, (int)apt_get_config('APT_MAX_PAIRS_PER_PRODUCT'));
+    if ($apt_limit === 0) {
+        $messageStack->add(APT_TEXT_PRUNE_DISABLED, 'caution');
+    } else {
+        $apt_cursor = max(0, (int)($_POST['prune_cursor'] ?? 0));
+        $apt_deleted = max(0, (int)($_POST['prune_deleted'] ?? 0));
+        $apt_order_by = apt_prune_order_by();
+        $apt_stop_at = microtime(true) + APT_SEED_TIME_BUDGET_SECONDS;
+        $apt_done = false;
+
+        while (microtime(true) < $apt_stop_at) {
+            // Next batch of products holding more pairs than the limit,
+            // walked in products_id order via cursor (index-only scan).
+            $batch = $db->Execute(
+                'SELECT products_id, COUNT(*) AS pair_count
+                   FROM ' . TABLE_PRODUCTS_ALSO_PURCHASED . '
+                  WHERE products_id > ' . $apt_cursor . '
+                  GROUP BY products_id
+                 HAVING pair_count > ' . $apt_limit . '
+                  ORDER BY products_id
+                  LIMIT 100'
+            );
+            if ($batch->EOF) {
+                $apt_done = true;
+                break;
+            }
+            foreach ($batch as $apt_row) {
+                $apt_pid = (int)$apt_row['products_id'];
+                // Survivors: this product's top-N by the configured ranking.
+                $keep = $db->Execute(
+                    'SELECT also_products_id
+                       FROM ' . TABLE_PRODUCTS_ALSO_PURCHASED . '
+                      WHERE products_id = ' . $apt_pid . '
+                      ORDER BY ' . $apt_order_by . '
+                      LIMIT ' . $apt_limit
+                );
+                $keep_ids = [];
+                foreach ($keep as $keep_row) {
+                    $keep_ids[] = (int)$keep_row['also_products_id'];
+                }
+                if (count($keep_ids) > 0) {
+                    $db->Execute(
+                        'DELETE FROM ' . TABLE_PRODUCTS_ALSO_PURCHASED . '
+                          WHERE products_id = ' . $apt_pid . '
+                            AND also_products_id NOT IN (' . implode(',', $keep_ids) . ')'
+                    );
+                    $apt_deleted += (int)$db->affectedRows();
+                }
+                $apt_cursor = $apt_pid;
+                if (microtime(true) >= $apt_stop_at) {
+                    break;
+                }
+            }
+        }
+
+        if ($apt_done) {
+            // Persist the run for the status panel: before = after + removed.
+            $apt_after = $db->Execute('SELECT COUNT(*) AS c FROM ' . TABLE_PRODUCTS_ALSO_PURCHASED);
+            $apt_after_rows = (int)$apt_after->fields['c'];
+            $db->Execute(
+                "UPDATE " . TABLE_CONFIGURATION . "
+                    SET configuration_value = '" . zen_db_input(date('Y-m-d H:i:s') . '|' . ($apt_after_rows + $apt_deleted) . '|' . $apt_after_rows . '|' . $apt_limit) . "', last_modified = NOW()
+                  WHERE configuration_key = 'APT_PRUNE_STATS'
+                  LIMIT 1"
+            );
+            $messageStack->add(sprintf(APT_TEXT_PRUNE_COMPLETE, number_format($apt_deleted), number_format($apt_limit)), 'success');
+        } else {
+            $messageStack->add(sprintf(APT_TEXT_PRUNE_CHUNK_DONE, number_format($apt_cursor), number_format($apt_deleted)), 'success');
+            $apt_auto_continue_prune = true;
+            $apt_prune_state = ['cursor' => $apt_cursor, 'deleted' => $apt_deleted];
         }
     }
 }
@@ -320,6 +431,7 @@ $apt_settings_summary = [
     APT_TEXT_SETTING_RANKING => (defined('APT_RANKING') ? APT_RANKING : '—'),
     APT_TEXT_SETTING_FALLBACK => (defined('APT_FALLBACK_STOCK') ? APT_FALLBACK_STOCK : '—'),
     APT_TEXT_SETTING_DEBUG => (defined('APT_DEBUG_LOG') ? APT_DEBUG_LOG : '—'),
+    APT_TEXT_SETTING_MAX_PAIRS => apt_get_config('APT_MAX_PAIRS_PER_PRODUCT'),
 ];
 ?>
 <!doctype html>
@@ -369,6 +481,26 @@ $apt_settings_summary = [
                                     echo '<span class="label label-warning">' . APT_TEXT_SEED_NOT_STARTED_SHORT . '</span> ' . APT_TEXT_SEED_NOT_STARTED;
                                 } else {
                                     echo '<span class="label label-info">' . APT_TEXT_SEED_IN_PROGRESS_SHORT . '</span> ' . sprintf(APT_TEXT_SEED_IN_PROGRESS, number_format((int)$seed_progress), number_format($max_orders_id));
+                                }
+                                ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><?php echo APT_TEXT_LAST_PRUNE; ?></td>
+                            <td>
+                                <?php
+                                $apt_prune_stats = explode('|', apt_get_config('APT_PRUNE_STATS'));
+                                if (count($apt_prune_stats) === 4 && $apt_prune_stats[0] !== '') {
+                                    echo sprintf(
+                                        APT_TEXT_LAST_PRUNE_DETAIL,
+                                        zen_date_short($apt_prune_stats[0]) . ' ' . date('H:i', strtotime($apt_prune_stats[0])),
+                                        number_format((float)$apt_prune_stats[1]),
+                                        number_format((float)$apt_prune_stats[2]),
+                                        number_format((float)$apt_prune_stats[1] - (float)$apt_prune_stats[2]),
+                                        (int)$apt_prune_stats[3]
+                                    );
+                                } else {
+                                    echo APT_TEXT_LAST_PRUNE_NEVER;
                                 }
                                 ?>
                             </td>
@@ -509,6 +641,17 @@ $apt_settings_summary = [
                         </tr>
                         <tr>
                             <td style="vertical-align: middle;">
+                                <?php echo zen_draw_form('apt_prune', FILENAME_ALSO_PURCHASED_TURBO, '', 'post', '', true); ?>
+                                    <?php echo zen_draw_hidden_field('action', 'prune_pairs'); ?>
+                                    <?php echo zen_draw_hidden_field('prune_cursor', ($apt_prune_state['cursor'] ?? 0), 'id="apt-prune-cursor"'); ?>
+                                    <?php echo zen_draw_hidden_field('prune_deleted', ($apt_prune_state['deleted'] ?? 0), 'id="apt-prune-deleted"'); ?>
+                                    <button type="submit" class="btn btn-default btn-block"><?php echo APT_BUTTON_PRUNE; ?></button>
+                                </form>
+                            </td>
+                            <td class="text-muted" style="vertical-align: middle;"><?php echo sprintf(APT_HELP_PRUNE, (int)apt_get_config('APT_MAX_PAIRS_PER_PRODUCT')); ?></td>
+                        </tr>
+                        <tr>
+                            <td style="vertical-align: middle;">
                                 <?php echo zen_draw_form('apt_repair', FILENAME_ALSO_PURCHASED_TURBO, '', 'post', '', true); ?>
                                     <?php echo zen_draw_hidden_field('action', 'repair_shims'); ?>
                                     <button type="submit" class="btn btn-default btn-block"><?php echo APT_BUTTON_REPAIR_SHIMS; ?></button>
@@ -527,6 +670,14 @@ $apt_settings_summary = [
         // Seeding incomplete: automatically continue with the next chunk set.
         setTimeout(function () {
             document.forms['apt_seed'].submit();
+        }, 400);
+    </script>
+<?php } ?>
+<?php if ($apt_auto_continue_prune === true || $apt_chain_prune_after_seed === true) { ?>
+    <script>
+        // Pruning in progress (or auto-started after seeding): continue.
+        setTimeout(function () {
+            document.forms['apt_prune'].submit();
         }, 400);
     </script>
 <?php } ?>

@@ -6,8 +6,8 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.0.0
- * @updated     07-13-2026
+ * @version     1.1.0
+ * @updated     07-22-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
 $define = [
@@ -34,6 +34,9 @@ $define = [
     'APT_TEXT_SEED_NOT_STARTED' => 'product pages are using the stock-query fallback.',
     'APT_TEXT_SEED_IN_PROGRESS_SHORT' => 'In progress',
     'APT_TEXT_SEED_IN_PROGRESS' => 'next orders_id to process: %s (of max %s).',
+    'APT_TEXT_LAST_PRUNE' => 'Last prune',
+    'APT_TEXT_LAST_PRUNE_NEVER' => 'Never run.',
+    'APT_TEXT_LAST_PRUNE_DETAIL' => '%s &mdash; %s &rarr; %s rows (%s removed, limit %s per product)',
 
     'APT_TEXT_SHIMS_EXPLAIN' => 'Per active template, how the also-purchased data engine is wired in. OK and INTEGRATED both mean this plugin supplies the data.',
     'APT_TEXT_SHIM_OK' => 'OK',
@@ -55,6 +58,14 @@ $define = [
     'APT_TEXT_SETTING_RANKING' => 'Ranking (APT_RANKING)',
     'APT_TEXT_SETTING_FALLBACK' => 'Stock-query fallback (APT_FALLBACK_STOCK)',
     'APT_TEXT_SETTING_DEBUG' => 'Debug log (APT_DEBUG_LOG)',
+    'APT_TEXT_SETTING_MAX_PAIRS' => 'Max pairs per product (APT_MAX_PAIRS_PER_PRODUCT)',
+
+    'APT_BUTTON_PRUNE' => 'Prune pair table (keep top pairs)',
+    'APT_HELP_PRUNE' => 'Trims each product to its %s strongest pairs (per the setting; ranking follows APT_RANKING). The storefront only displays a handful, so on large stores this can shrink the table dramatically with no visible change. Runs in chunks and continues automatically; safe to run any time. Runs automatically after seeding completes.',
+    'APT_TEXT_PRUNE_DISABLED' => 'Pruning is disabled (Maximum pairs stored per product is 0). Set a limit under Configuration &gt; Also Purchased Turbo first.',
+    'APT_TEXT_PRUNE_CHUNK_DONE' => 'Pruning&hellip; processed through products_id %s (%s rows removed so far). Continuing automatically&hellip;',
+    'APT_TEXT_PRUNE_COMPLETE' => 'Prune complete: removed %s pair rows; every product now holds at most %s pairs.',
+    'APT_TEXT_SEED_PRUNE_CHAIN' => 'Pair pruning is starting automatically to trim the freshly seeded table&hellip;',
     'APT_BUTTON_EDIT_PLUGIN_SETTINGS' => 'Edit in Configuration &raquo; Also Purchased Turbo',
 
     'APT_BUTTON_SEED' => 'Seed / resume from order history',
