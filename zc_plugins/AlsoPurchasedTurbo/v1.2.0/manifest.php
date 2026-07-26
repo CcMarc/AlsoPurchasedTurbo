@@ -6,12 +6,12 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.1.0
+ * @version     1.2.0
  * @updated     07-22-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
 return [
-    'pluginVersion' => 'v1.1.0',
+    'pluginVersion' => 'v1.2.0',
     'pluginName' => 'Also Purchased Turbo',
     'pluginDescription' => 'Replaces the stock "Customers who bought this product also purchased" engine with a precomputed product-pair table, eliminating the expensive orders_products self-join on every product page. Recommendations are ranked by real purchase affinity and kept current by a checkout observer. Requires no core-file or template changes; the store\'s existing also-purchased presentation is preserved.',
     'pluginAuthor' => 'Marcopolo',

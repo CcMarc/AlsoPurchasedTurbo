@@ -6,7 +6,7 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.1.0
+ * @version     1.2.0
  * @updated     07-22-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
@@ -24,7 +24,7 @@ class ScriptedInstaller extends ScriptedInstallBase
 
     // Version the installer identifies as during install/upgrade. Bumped as
     // part of every release (see the version-bump checklist in the repo).
-    public const APT_CURRENT_VERSION = '1.1.0';
+    public const APT_CURRENT_VERSION = '1.2.0';
 
     protected function executeInstall()
     {
@@ -183,6 +183,16 @@ class ScriptedInstaller extends ScriptedInstallBase
             ]);
         }
 
+        if (!defined('APT_OPTIMIZE_STATS')) {
+            $this->addConfigurationKey('APT_OPTIMIZE_STATS', [
+                'configuration_title' => 'Last optimize (managed automatically)',
+                'configuration_value' => '',
+                'configuration_description' => '<br>Record of the most recent pair-table optimize (disk-space reclaim), shown on Tools &gt; Also Purchased Turbo. Managed automatically &mdash; do not edit by hand. Format: <code>datetime|size_bytes|reclaimed_bytes</code>.',
+                'configuration_group_id' => $cgi,
+                'sort_order' => 92,
+            ]);
+        }
+
         if (!defined('APT_SEED_PROGRESS')) {
             // On a REINSTALL the pair table was preserved from the previous
             // install; treat a populated table as already-seeded so the
@@ -250,7 +260,7 @@ class ScriptedInstaller extends ScriptedInstallBase
             zen_deregister_admin_pages(['toolsAlsoPurchasedTurbo', 'configAlsoPurchasedTurbo']);
         }
 
-        $this->deleteConfigurationKeys(['APT_ENABLED', 'APT_RANKING', 'APT_FALLBACK_STOCK', 'APT_DEBUG_LOG', 'APT_MAX_PAIRS_PER_PRODUCT', 'APT_PRUNE_STATS', 'APT_SEED_PROGRESS']);
+        $this->deleteConfigurationKeys(['APT_ENABLED', 'APT_RANKING', 'APT_FALLBACK_STOCK', 'APT_DEBUG_LOG', 'APT_MAX_PAIRS_PER_PRODUCT', 'APT_PRUNE_STATS', 'APT_OPTIMIZE_STATS', 'APT_SEED_PROGRESS']);
         $this->deleteConfigurationGroup($this->configGroupTitle, true);
 
         // NOTE: the products_also_purchased table is deliberately preserved so

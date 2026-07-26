@@ -235,6 +235,13 @@ shoppers.
 **Repair template shims**. Until then that template simply uses stock
 behavior — degraded, never broken.
 
+**I pruned but the table file is still huge on disk.** That's InnoDB, not
+the plugin: deleted rows' space stays inside the tablespace as internal free
+space rather than being returned to the OS. Use **Optimize table (reclaim
+disk space)** on the Tools page (or run `OPTIMIZE TABLE
+products_also_purchased;` yourself) — it rebuilds the table with only live
+rows and the file shrinks to match.
+
 **Deleted products?** They can never display (the read query joins the live
 products table), but their pair rows linger; **Purge pairs for deleted
 products** reclaims them.

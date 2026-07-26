@@ -6,7 +6,7 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.1.0
+ * @version     1.2.0
  * @updated     07-22-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
@@ -172,6 +172,31 @@ function apt_get_config(string $key): string
           WHERE configuration_key = '" . zen_db_input($key) . "' LIMIT 1"
     );
     return $result->EOF ? '' : (string)$result->fields['configuration_value'];
+}
+
+/**
+ * Pair-table size info from information_schema.
+ * @return array{bytes:int, free:int}
+ */
+function apt_table_size(): array
+{
+    global $db;
+    $result = $db->Execute(
+        "SELECT (data_length + index_length) AS bytes, data_free AS free
+           FROM information_schema.tables
+          WHERE table_schema = DATABASE()
+            AND table_name = '" . TABLE_PRODUCTS_ALSO_PURCHASED . "'
+          LIMIT 1"
+    );
+    return [
+        'bytes' => $result->EOF ? 0 : (int)$result->fields['bytes'],
+        'free' => $result->EOF ? 0 : (int)$result->fields['free'],
+    ];
+}
+
+function apt_format_mb(int $bytes): string
+{
+    return number_format($bytes / 1048576, 1) . ' MB';
 }
 
 /**
@@ -344,6 +369,9 @@ if ($action === 'prune_pairs') {
                   LIMIT 1"
             );
             $messageStack->add(sprintf(APT_TEXT_PRUNE_COMPLETE, number_format($apt_deleted), number_format($apt_limit)), 'success');
+            if ($apt_deleted >= 100000) {
+                $messageStack->add(APT_TEXT_PRUNE_OPTIMIZE_HINT, 'caution');
+            }
         } else {
             $messageStack->add(sprintf(APT_TEXT_PRUNE_CHUNK_DONE, number_format($apt_cursor), number_format($apt_deleted)), 'success');
             $apt_auto_continue_prune = true;
@@ -396,6 +424,25 @@ if ($action === 'takeover_shim') {
     }
 }
 
+if ($action === 'optimize_table') {
+    // InnoDB never returns deleted rows' pages to the OS -- after a large
+    // prune the tablespace keeps the freed space internally. OPTIMIZE TABLE
+    // rebuilds the table with only live rows and shrinks the file on disk.
+    // Can take minutes on a large table, so it is admin-initiated only.
+    @set_time_limit(0);
+    $apt_size_before = apt_table_size();
+    $db->Execute('OPTIMIZE TABLE ' . TABLE_PRODUCTS_ALSO_PURCHASED);
+    $apt_size_after = apt_table_size();
+    $apt_reclaimed = max(0, ($apt_size_before['bytes'] + $apt_size_before['free']) - ($apt_size_after['bytes'] + $apt_size_after['free']));
+    $db->Execute(
+        "UPDATE " . TABLE_CONFIGURATION . "
+            SET configuration_value = '" . zen_db_input(date('Y-m-d H:i:s') . '|' . $apt_size_after['bytes'] . '|' . $apt_reclaimed) . "', last_modified = NOW()
+          WHERE configuration_key = 'APT_OPTIMIZE_STATS'
+          LIMIT 1"
+    );
+    $messageStack->add(sprintf(APT_TEXT_OPTIMIZE_DONE, apt_format_mb($apt_size_after['bytes']), apt_format_mb($apt_reclaimed)), 'success');
+}
+
 if ($action === 'repair_shims') {
     foreach (apt_shim_status() as $template_dir => $state) {
         if ($state !== 'missing') {
@@ -444,7 +491,14 @@ $apt_settings_summary = [
 <?php require DIR_WS_INCLUDES . 'header.php'; ?>
 <!-- header_eof //-->
 
-<div class="container-fluid">
+<div class="container-fluid apt-admin">
+<style>
+    /* Pin px sizes per SMC admin CSS convention (see admin-css-rem-vs-px doc).
+       ZC 2.x admin Bootstrap sizes <code> at 90% of parent, which renders
+       small; pin it to the standard 12px. Scoped to this page only. */
+    .apt-admin code { font-size: 12px; }
+    .apt-admin .text-muted { font-size: 13px; }
+</style>
     <h1 class="pageHeading"><?php echo APT_HEADING_TITLE; ?> <small><?php echo APT_HEADING_SUBTITLE; ?></small></h1>
 
     <div class="row">
@@ -470,6 +524,18 @@ $apt_settings_summary = [
                         <tr>
                             <td><?php echo APT_TEXT_PRODUCTS_COVERED; ?></td>
                             <td><?php echo number_format($products_covered); ?></td>
+                        </tr>
+                        <tr>
+                            <td><?php echo APT_TEXT_TABLE_SIZE; ?></td>
+                            <td>
+                                <?php
+                                $apt_status_sz = apt_table_size();
+                                echo apt_format_mb($apt_status_sz['bytes']);
+                                if ($apt_status_sz['free'] > 1048576) {
+                                    echo ' ' . sprintf(APT_TEXT_TABLE_SIZE_RECLAIMABLE, apt_format_mb($apt_status_sz['free']));
+                                }
+                                ?>
+                            </td>
                         </tr>
                         <tr>
                             <td><?php echo APT_TEXT_SEED_STATE; ?></td>
@@ -501,6 +567,24 @@ $apt_settings_summary = [
                                     );
                                 } else {
                                     echo APT_TEXT_LAST_PRUNE_NEVER;
+                                }
+                                ?>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><?php echo APT_TEXT_LAST_OPTIMIZE; ?></td>
+                            <td>
+                                <?php
+                                $apt_opt_stats = explode('|', apt_get_config('APT_OPTIMIZE_STATS'));
+                                if (count($apt_opt_stats) === 3 && $apt_opt_stats[0] !== '') {
+                                    echo sprintf(
+                                        APT_TEXT_LAST_OPTIMIZE_DETAIL,
+                                        zen_date_short($apt_opt_stats[0]) . ' ' . date('H:i', strtotime($apt_opt_stats[0])),
+                                        apt_format_mb((int)$apt_opt_stats[1]),
+                                        apt_format_mb((int)$apt_opt_stats[2])
+                                    );
+                                } else {
+                                    echo APT_TEXT_LAST_OPTIMIZE_NEVER;
                                 }
                                 ?>
                             </td>
@@ -649,6 +733,17 @@ $apt_settings_summary = [
                                 </form>
                             </td>
                             <td class="text-muted" style="vertical-align: middle;"><?php echo sprintf(APT_HELP_PRUNE, (int)apt_get_config('APT_MAX_PAIRS_PER_PRODUCT')); ?></td>
+                        </tr>
+                        <tr>
+                            <td style="vertical-align: middle;">
+                                <?php echo zen_draw_form('apt_optimize', FILENAME_ALSO_PURCHASED_TURBO, '', 'post', 'onsubmit="return confirm(\'' . APT_TEXT_OPTIMIZE_CONFIRM_JS . '\');"', true); ?>
+                                    <?php echo zen_draw_hidden_field('action', 'optimize_table'); ?>
+                                    <button type="submit" class="btn btn-default btn-block"><?php echo APT_BUTTON_OPTIMIZE; ?></button>
+                                </form>
+                            </td>
+                            <td class="text-muted" style="vertical-align: middle;">
+                                <?php $apt_sz = apt_table_size(); echo sprintf(APT_HELP_OPTIMIZE, apt_format_mb($apt_sz['bytes']), apt_format_mb($apt_sz['free'])); ?>
+                            </td>
                         </tr>
                         <tr>
                             <td style="vertical-align: middle;">

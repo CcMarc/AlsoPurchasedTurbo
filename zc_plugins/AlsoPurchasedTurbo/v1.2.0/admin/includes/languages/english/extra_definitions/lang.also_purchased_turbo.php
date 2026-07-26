@@ -6,7 +6,7 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.1.0
+ * @version     1.2.0
  * @updated     07-22-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
@@ -28,6 +28,8 @@ $define = [
     'APT_TEXT_DISABLED' => 'Disabled',
     'APT_TEXT_PAIR_ROWS' => 'Pair rows',
     'APT_TEXT_PRODUCTS_COVERED' => 'Products with recommendations',
+    'APT_TEXT_TABLE_SIZE' => 'Table size on disk',
+    'APT_TEXT_TABLE_SIZE_RECLAIMABLE' => '(%s internally reclaimable &mdash; see "Optimize table" below)',
     'APT_TEXT_SEED_STATE' => 'Historical seed',
     'APT_TEXT_SEED_DONE' => 'Complete',
     'APT_TEXT_SEED_NOT_STARTED_SHORT' => 'Not started',
@@ -35,6 +37,9 @@ $define = [
     'APT_TEXT_SEED_IN_PROGRESS_SHORT' => 'In progress',
     'APT_TEXT_SEED_IN_PROGRESS' => 'next orders_id to process: %s (of max %s).',
     'APT_TEXT_LAST_PRUNE' => 'Last prune',
+    'APT_TEXT_LAST_OPTIMIZE' => 'Last optimize',
+    'APT_TEXT_LAST_OPTIMIZE_NEVER' => 'Never run.',
+    'APT_TEXT_LAST_OPTIMIZE_DETAIL' => '%s &mdash; table now %s on disk (%s reclaimed)',
     'APT_TEXT_LAST_PRUNE_NEVER' => 'Never run.',
     'APT_TEXT_LAST_PRUNE_DETAIL' => '%s &mdash; %s &rarr; %s rows (%s removed, limit %s per product)',
 
@@ -66,6 +71,12 @@ $define = [
     'APT_TEXT_PRUNE_CHUNK_DONE' => 'Pruning&hellip; processed through products_id %s (%s rows removed so far). Continuing automatically&hellip;',
     'APT_TEXT_PRUNE_COMPLETE' => 'Prune complete: removed %s pair rows; every product now holds at most %s pairs.',
     'APT_TEXT_SEED_PRUNE_CHAIN' => 'Pair pruning is starting automatically to trim the freshly seeded table&hellip;',
+
+    'APT_BUTTON_OPTIMIZE' => 'Optimize table (reclaim disk space)',
+    'APT_HELP_OPTIMIZE' => 'Rebuilds the pair table on disk. InnoDB keeps deleted rows\' space inside the tablespace rather than returning it to the OS, so after a large prune the file stays big until optimized. Current size: %s; internally reclaimable: %s. Can take several minutes on a large table &mdash; the storefront keeps working during the rebuild.',
+    'APT_TEXT_OPTIMIZE_CONFIRM_JS' => 'Rebuild the pair table now? This can take several minutes on a large table.',
+    'APT_TEXT_OPTIMIZE_DONE' => 'Optimize complete. Pair table is now %s on disk (%s reclaimed).',
+    'APT_TEXT_PRUNE_OPTIMIZE_HINT' => 'That prune removed a large number of rows. Disk space is NOT automatically returned by InnoDB &mdash; run "Optimize table (reclaim disk space)" below to shrink the table file.',
     'APT_BUTTON_EDIT_PLUGIN_SETTINGS' => 'Edit in Configuration &raquo; Also Purchased Turbo',
 
     'APT_BUTTON_SEED' => 'Seed / resume from order history',

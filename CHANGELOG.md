@@ -4,6 +4,21 @@ File headers (`@version` / `@updated`) record the release that LAST MODIFIED
 each file, not the current release — same convention as Zen Cart core. Files
 unchanged since v1.0.0 intentionally keep their v1.0.0 stamp.
 
+## v1.2.0 (07-26-2026)
+
+Deploy pattern: **Plugin Manager upgrade required** (adds a status-tracking
+configuration key).
+
+- NEW: "Optimize table (reclaim disk space)" maintenance action. InnoDB
+  keeps deleted rows' space inside the tablespace after pruning; this
+  rebuilds the table and shrinks the file on disk, reporting the size and
+  space reclaimed. Shows current size and internally reclaimable space in
+  the button's help text.
+- After a prune that removes 100k+ rows, a message now points at the
+  optimize action.
+- NEW: "Last optimize" shown in the Tools page status panel — when it ran,
+  resulting table size on disk, and space reclaimed.
+
 ## v1.1.0 (07-22-2026)
 
 Deploy pattern: **Plugin Manager upgrade required** (adds a configuration
