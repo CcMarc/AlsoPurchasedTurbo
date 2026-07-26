@@ -2,6 +2,12 @@
 
 ![AlsoPurchasedTurbo](https://socialify.git.ci/CcMarc/AlsoPurchasedTurbo/image?custom_description=Fast+%22also+purchased%22+recommendations+for+Zen+Cart+from+a+precomputed+pair+table&description=1&font=Inter&forks=1&issues=1&language=1&name=1&owner=0&pattern=Signal&pulls=1&stargazers=1&theme=Auto)
 
+[![PHP](https://badgen.net/badge/php/8.0%2B/777BB4)](https://www.php.net/)
+[![Zen Cart](https://badgen.net/badge/zen%20cart/2.1.0%2B/F6851F)](https://www.zen-cart.com/)
+[![License](https://badgen.net/badge/license/GPL-2.0/blue)](https://www.zen-cart.com/license/2_0.txt)
+[![Last Commit](https://badgen.net/github/last-commit/CcMarc/AlsoPurchasedTurbo/main)](https://github.com/CcMarc/AlsoPurchasedTurbo/commits/main)
+[![Release](https://badgen.net/github/release/CcMarc/AlsoPurchasedTurbo)](https://github.com/CcMarc/AlsoPurchasedTurbo/releases/latest)
+
 Replaces Zen Cart's stock **"Customers who bought this product also
 purchased"** engine with a precomputed product-pair table, eliminating the
 expensive `orders_products` self-join that runs on every product page view.
