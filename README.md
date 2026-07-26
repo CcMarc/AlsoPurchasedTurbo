@@ -45,13 +45,16 @@ Measured with MariaDB `ANALYZE`, warm cache, on the store's most expensive
 | Random product | Stock | 0.268 s | 1,313,034 | 2,562,922 |
 | Random product | **APT** | **0.014 s** | **171** | **234** |
 | Most popular product (46k purchases) | Stock | 0.785 s | 1,314,237 | 2,562,922 |
-| Most popular product | **APT** | **0.191 s** | **5,149** | **17,278**¹ |
+| Most popular product | APT v1.0.0 (unpruned) | 0.191 s | 5,149 | 17,278 |
+| Most popular product | **APT v1.1.0+ (pruned)** | **0.030 s** | **36.59** | **50**¹ |
 
 Roughly **8,000x more efficient** on the random-product case — a ~99.6% drop
-in query cost — with no temporary tables and no filesort.
+in query cost — with no temporary tables and no filesort. Storage on the
+same store: **40M rows / 4.5 GB** unpruned → **2.3M rows / 78 MB** after
+pruning and optimizing.
 
-¹ Pre-pruning. v1.1.0's pair pruning caps this read at the configured pair
-limit (default 50 rows).
+¹ Exactly the configured pair limit — the read examines nothing beyond the
+kept set.
 
 ## Admin
 
@@ -180,6 +183,29 @@ if ($also_purchased_products === false || ($also_purchased_products->RecordCount
     // ... your ORIGINAL query goes here, unchanged, as the fallback ...
 }
 ```
+
+> [!WARNING]
+> **If your original loop advances with `MoveNextRandom()`** (stock-style
+> templates do — the stock module fetches via `ExecuteRandomMulti`), you must
+> match the advance to whichever query actually produced the result. APT's
+> query is a plain `Execute()`, so `MoveNextRandom()` on it displays only a
+> single product. Set a flag after the fallback block:
+>
+> ```php
+> $apt_supplied = ($apt_active && $also_purchased_products->RecordCount() > 0); // pair table, not fallback
+> ```
+>
+> and at the bottom of your rendering loop:
+>
+> ```php
+> if ($apt_supplied) {
+>     $also_purchased_products->MoveNext();
+> } else {
+>     $also_purchased_products->MoveNextRandom(); // original stock advance
+> }
+> ```
+>
+> (Thanks to balihr for catching this on a stock-style template.)
 
 Keep the literal `APT-DATA-CONSUMER` marker comment: the installer,
 uninstaller, and Tools page recognize it, leave your module untouched, and
