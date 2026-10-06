@@ -6,12 +6,16 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.2.0
- * @updated     07-26-2026
+ * @version     1.2.1
+ * @updated     10-06-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
 // Replaces the stock also_purchased engine with a precomputed pair table.
 //
+if (!defined('IS_ADMIN_FLAG')) {
+    die('Illegal Access');
+}
+
 use Zencart\PluginSupport\ScriptedInstaller as ScriptedInstallBase;
 
 class ScriptedInstaller extends ScriptedInstallBase
@@ -24,7 +28,7 @@ class ScriptedInstaller extends ScriptedInstallBase
 
     // Version the installer identifies as during install/upgrade. Bumped as
     // part of every release (see the version-bump checklist in the repo).
-    public const APT_CURRENT_VERSION = '1.2.0';
+    public const APT_CURRENT_VERSION = '1.2.1';
 
     protected function executeInstall()
     {

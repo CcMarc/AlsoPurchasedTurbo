@@ -4,6 +4,16 @@ File headers (`@version` / `@updated`) record the release that LAST MODIFIED
 each file, not the current release — same convention as Zen Cart core. Files
 unchanged since v1.0.0 intentionally keep their v1.0.0 stamp.
 
+## v1.2.1 (10-06-2026)
+
+Deploy pattern: **Plugin Manager upgrade**. No database or configuration
+changes.
+
+- Added direct-access guards to the admin `extra_datafiles` file, the admin
+  language file and the installer, and to the storefront auto-loader,
+  observer and `extra_datafiles` file. Each now exits when requested
+  directly instead of through Zen Cart.
+
 ## v1.2.0 (07-26-2026)
 
 Deploy pattern: **Plugin Manager upgrade required** (adds a status-tracking

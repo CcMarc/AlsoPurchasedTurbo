@@ -6,10 +6,14 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.2.0
- * @updated     07-26-2026
+ * @version     1.2.1
+ * @updated     10-06-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
+if (!defined('IS_ADMIN_FLAG')) {
+    die('Illegal Access');
+}
+
 $define = [
     'BOX_TOOLS_ALSO_PURCHASED_TURBO' => 'Also Purchased Turbo',
     'BOX_CONFIGURATION_ALSO_PURCHASED_TURBO' => 'Also Purchased Turbo',

@@ -6,8 +6,8 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.0.0
- * @updated     07-13-2026
+ * @version     1.2.1
+ * @updated     10-06-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
 // Loaded at point 78 (same convention as other observer-based plugins):
@@ -15,6 +15,10 @@
 // APT_MODULE_PATH constant is defined before any page template renders and
 // the observer is attached before checkout's order-create notifications fire.
 //
+if (!defined('IS_ADMIN_FLAG')) {
+    die('Illegal Access');
+}
+
 $autoLoadConfig[78][] = [
     'autoType' => 'class',
     'loadFile' => 'observers/AlsoPurchasedTurbo.php',

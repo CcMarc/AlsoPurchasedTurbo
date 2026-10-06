@@ -6,8 +6,8 @@
  * @author      Marcopolo
  * @copyright   2026
  * @license     GNU General Public License (GPL) - https://www.zen-cart.com/license/2_0.txt
- * @version     1.0.0
- * @updated     07-13-2026
+ * @version     1.2.1
+ * @updated     10-06-2026
  * @github      https://github.com/CcMarc/AlsoPurchasedTurbo
  */
 // Two responsibilities:
@@ -29,6 +29,10 @@
 //    written for the same order: stateless incremental pairing, no
 //    "order complete" event required.
 //
+if (!defined('IS_ADMIN_FLAG')) {
+    die('Illegal Access');
+}
+
 class AlsoPurchasedTurbo extends base
 {
     protected bool $enabled = false;
