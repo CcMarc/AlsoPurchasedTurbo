@@ -184,6 +184,13 @@ if ($also_purchased_products === false || ($also_purchased_products->RecordCount
 }
 ```
 
+This block is not a copy of the plugin's own module. The plugin's module
+replaces the stock one completely, including the product card markup. The
+block above only swaps the data source and leaves your rendering as it is.
+If you merged code from the plugin's module into yours by hand, add the
+`// APT-DATA-CONSUMER` comment line to your file so the Tools page reports
+the template as INTEGRATED.
+
 > [!WARNING]
 > **If your original loop advances with `MoveNextRandom()`** (stock-style
 > templates do — the stock module fetches via `ExecuteRandomMulti`), you must
