@@ -65,6 +65,8 @@ Everything lives on two admin pages:
 - **Tools > Also Purchased Turbo** — engine status, template integration
   health, seeding, pruning, maintenance, and the shared display settings
 
+![Tools > Also Purchased Turbo](images/tools.png)
+
 ## How it works
 
 1. **A pair table.** `products_also_purchased` stores
